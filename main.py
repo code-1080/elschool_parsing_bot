@@ -20,7 +20,10 @@ dp.include_router(router)
 
 dp.update.outer_middleware(MyMiddleware())
 
+async def main():
+    await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    dp.start_polling(bot)
+    asyncio.run(main())
