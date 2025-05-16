@@ -93,14 +93,15 @@ async def password(message: Message, state: FSMContext):
 
         session = await api.create_session()
         await api.login(session, login, password)
-        e_id = await api.get_id(session)
+        jwt_token = await api.get_jwt(session)
 
         new_user = UserModel(
             telegram_id=user_id,
-            elschool_id=e_id,
+            jwt_token=jwt_token,
             elschool_login=login,
             elschool_password=password
         )
+
         db_session.add(new_user)
         await db_session.commit()
         sessions[user_id] = session
@@ -128,11 +129,11 @@ async def confirm(message: Message, state: FSMContext):
 
             session = await api.create_session()
             await api.login(session, login, password)
-            e_id = await api.get_id(session)
+            jwt_token = await api.get_jwt(session)
 
             sessions[message.from_user.id] = session
 
-            await db_session.execute(update(UserModel).where(UserModel.telegram_id == message.from_user.id).values(elschool_id=e_id, elschool_login=login, elschool_password=password))
+            await db_session.execute(update(UserModel).where(UserModel.telegram_id == message.from_user.id).values(jwt_token=jwt_token, elschool_login=login, elschool_password=password))
             await db_session.commit()
 
             await message.answer("Вы успешно зарегестрировались", reply_markup=ReplyKeyboardRemove())
@@ -155,11 +156,13 @@ async def get_marks(message: Message, state: FSMContext):
             return await registration(message, state)
 
         db_session = await db.get_session()
-        result = await db_session.execute(select(UserModel.elschool_id).where(UserModel.telegram_id == message.from_user.id))
+        result = await db_session.execute(select(UserModel.jwt_token).where(UserModel.telegram_id == message.from_user.id))
 
-        user_id = result.scalars().first()
+        jwt_token = result.scalars().first()
 
-        marks = await api.get_marks(sessions[message.from_user.id], user_id)
+        params = await api.decode_jwt(jwt_token)
+
+        marks = await api.get_marks(sessions[message.from_user.id], params)
 
         for key, value in marks.items():
             str_marks = f"{key}\n"
@@ -202,11 +205,12 @@ async def send_password(message: Message, state: FSMContext):
         day = message.text
 
         db_session = await db.get_session()
-        result = await db_session.execute(select(UserModel.elschool_id).where(UserModel.telegram_id == message.from_user.id))
-        user_id = result.scalars().first()
+        result = await db_session.execute(select(UserModel.jwt_token).where(UserModel.telegram_id == message.from_user.id))
+        jwt_token = result.scalars().first()
+        params = await api.decode_jwt(jwt_token)
 
 
-        diary = await api.get_diary_by_day(sessions[message.from_user.id], day, user_id)
+        diary = await api.get_diary_by_day(sessions[message.from_user.id], day, params)
 
         answer = ""
         for key, value in diary.items():

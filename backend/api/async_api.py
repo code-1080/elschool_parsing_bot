@@ -2,7 +2,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 import jwt
 
-from backend.db.db import get_session
+from yarl import URL
 
 import asyncio
 
@@ -42,23 +42,41 @@ async def login(session: aiohttp.ClientSession, login: str, password: str):
             raise Exception(response.status)
 
 
-async def get_id(session: aiohttp.ClientSession) -> str:
+async def get_jwt(session: aiohttp.ClientSession) -> str:
     try:
-        cookies = session.cookie_jar.filter_cookies(LOGIN_URL)
+        cookies = session.cookie_jar.filter_cookies(URL(LOGIN_URL))
         token = cookies["JWToken"].value
-        decoded = jwt.decode(token, options={"verify_signature": False})
-        return decoded["Id"]
+
+        return token
+
     except Exception:
         raise Exception()
 
 
-async def get_diary(session: aiohttp.ClientSession, id: int) -> dict:
-    params = {
-        "rooId": 1,
-        "instituteId": 2095,
-        "departmentId": 323518,
-        "pupilId": id
-    }
+async def decode_jwt(token):
+    try:
+        data = jwt.decode(token, options={"verify_signature": False})
+
+        pupil_id = data["Id"]
+        role_parts = data["role"].split(",")
+        _, _, _, roo_id, institute_id, department_id = role_parts[:6]
+
+        return {
+            "rooId": roo_id,
+            "instituteId": institute_id,
+            "pupilId": pupil_id,
+            "departmentId": department_id,
+        }
+
+    except Exception:
+        raise Exception()
+
+
+
+
+
+async def get_diary(session: aiohttp.ClientSession, params: dict) -> dict:
+
     async with session.get(DIARY_URL, params=params) as response:
         content = await response.text()
         soup = BeautifulSoup(content, 'lxml')
@@ -80,13 +98,8 @@ async def get_diary(session: aiohttp.ClientSession, id: int) -> dict:
         return day_homework
 
 
-async def get_marks(session: aiohttp.ClientSession, id: int) -> dict:
-    params = {
-        "rooId": 1,
-        "instituteId": 2095,
-        "departmentId": 323518,
-        "pupilId": id
-    }
+async def get_marks(session: aiohttp.ClientSession, params: dict) -> dict:
+
     try:
 
         async with session.get(MARKS_URL, params=params) as response:
@@ -120,14 +133,7 @@ async def get_marks(session: aiohttp.ClientSession, id: int) -> dict:
         raise Exception("Ошибка при получении оценок")
 
 
-async def get_diary_by_day(session: aiohttp.ClientSession, day: str, id: int) -> dict:
-
-    params = {
-        "rooId": 1,
-        "instituteId": 2095,
-        "departmentId": 323518,
-        "pupilId": id
-    }
+async def get_diary_by_day(session: aiohttp.ClientSession, day: str, params: dict) -> dict:
 
     try:
         async with session.get(DIARY_URL, params=params) as response:
@@ -156,15 +162,17 @@ async def get_diary_by_day(session: aiohttp.ClientSession, day: str, id: int) ->
 
 
 async def main():
-    login = "login"
+    e_login = "login"
     password = "password"
 
-    session = await get_session()
-    token = await get_id(session)
+    session = await create_session()
+    await login(session, e_login, password)
 
-    print(get_marks(session, token))
-    print(get_diary_by_day(session, "Понедельник", token))
+    params = await decode_jwt(await get_jwt(session))
+
+    d = await get_diary(session, params)
+    print(d)
 
 
 if __name__ == "__main__":
-    asyncio.run(main)
+    asyncio.run(main())
